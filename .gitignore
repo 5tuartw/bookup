@@ -1,0 +1,56 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+env/
+build/
+dist/
+eggs/
+.eggs/
+pip-wheel-metadata/
+develop-eggs/
+sdist/
+wheel/
+$(ProjectName).egg-info/
+.installed.cfg
+*.egg
+MANIFEST.in
+
+# Installer logs
+*.install.log
+install.log.*
+*.pth
+
+# Virtual environment
+venv/
+.venv/
+env.bak/
+venv.bak/
+
+# Pyenv
+.python-version
+
+# Jupyter Notebook related files
+.ipynb_checkpoints
+
+# MyPy cache
+.mypy_cache/
+
+# Other temporary files that might be created by your IDE or OS
+.DS_Store
+*.swp
+*.swo
+*.tmp
+*.bak
+*.log
+
+# Sensitive information (if you have any)
+.env
+# config.ini
+# secrets.json

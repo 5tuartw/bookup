@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Book Review Analyser</title>
+    <script>
+        function getJobStatus(jobId) {
+            fetch('/results/' + jobId)
+                .then(response => response.json())
+                .then(data => {
+                    const resultDiv = document.getElementById('result');
+                    if (data.status === 'finished') {
+                        resultDiv.innerText = data.result;
+                    } else if (data.status === 'failed') {
+                        resultDiv.innerText = 'Analysis failed: ' + data.error;
+                    } else if (data.status === 'pending') {
+                        resultDiv.innerText = 'Analysis pending...';
+                        setTimeout(function() {
+                            getJobStatus(jobId);
+                        }, 1000);
+                    }
+                });
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            const jobIdElement = document.getElementById('job_id');
+            if (jobIdElement && jobIdElement.value){
+                const jobId = jobIdElement.value;
+                const resultDiv = document.getElementById('result');
+                resultDiv.innerText = 'Analysis pending...';
+                getJobStatus(jobId);
+            }
+        });
+    </script>
+</head>
+<body>
+    <h1>Analyse a Book Review</h1>
+    <form method="POST">
+        <label for="review_text">Enter Book Review:</label><br>
+        <textarea id="review_text" name="review_text" rows="10" cols="80"></textarea><br><br>
+        <input type="submit" value="Analyse">
+        {% if job_id %}
+            <input type="hidden" id="job_id" value="{{ job_id }}">
+            <div id="result"></div>
+        {% endif %}
+    </form>
+</body>
+</html>
