@@ -1,0 +1,93 @@
+/* styles.css */
+
+/* Basic reset to ensure consistent styling across browsers */
+body, h1, h2, h3, p, ul, li, form, label, textarea, input, button {
+    margin: 0;
+    padding: 0;
+    border: 0;
+    font-size: 100%;
+    vertical-align: baseline;
+    box-sizing: border-box; /* Important for layout */
+}
+
+body {
+    font-family: sans-serif; /* A clean, modern font */
+    background-color: #f4f4f4; /* A light gray background */
+    line-height: 1.6; /* Improves readability */
+    color: #333; /* Dark gray text for good contrast */
+    padding: 20px; /* Overall padding for the page */
+}
+
+h1 {
+    font-size: 2.5em;
+    color: #2c3e50; /* A dark blue-gray */
+    margin-bottom: 20px;
+    text-align: center;
+}
+
+h3 {
+    font-size: 1.8em;
+    color: #34495e; /* Another dark blue-gray */
+    margin-top: 20px;
+    margin-bottom: 10px;
+}
+
+label {
+    display: block; /* Make labels take up the full width */
+    margin-bottom: 5px;
+    font-weight: bold;
+    color: #555;
+}
+
+textarea {
+    width: 100%;
+    padding: 10px;
+    margin-bottom: 15px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-family: inherit; /* Use the body font */
+    font-size: 1em;
+}
+
+input[type="submit"], button {
+    background-color: #5cb85c; /* A nice green for submit/confirm */
+    color: white;
+    padding: 10px 15px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 1em;
+    transition: background-color 0.3s ease; /* Smooth hover effect */
+}
+
+input[type="submit"]:hover, button:hover {
+    background-color: #51a351;
+}
+
+#result, #confirmed_books {
+    margin-top: 20px;
+    padding: 15px;
+    background-color: white;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+}
+
+ul {
+    list-style: none; /* Remove default bullet points */
+    padding-left: 0;
+    margin-bottom: 10px;
+}
+
+ul li {
+    padding: 8px 0;
+    border-bottom: 1px solid #eee;
+}
+
+ul li:last-child {
+    border-bottom: none; /* Remove border from the last item */
+}
+
+input[type="radio"] {
+    margin-right: 5px;
+}
+
+/* You can add more specific styles as needed */
