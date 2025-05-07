@@ -11,7 +11,7 @@ body, h1, h2, h3, p, ul, li, form, label, textarea, input, button {
 }
 
 body {
-    font-family: sans-serif; /* A clean, modern font */
+    font-family: 'Roboto Slab'; /* A clean, modern font */
     background-color: #f4f4f4; /* A light gray background */
     line-height: 1.6; /* Improves readability */
     color: #333; /* Dark gray text for good contrast */
@@ -90,4 +90,22 @@ input[type="radio"] {
     margin-right: 5px;
 }
 
-/* You can add more specific styles as needed */
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 20px;
+}
+
+th, td {
+    padding: 8px;
+    text-align: left;
+    border: 1px solid #dbdbdb;
+}
+
+tbody tr:nth-child(even) {
+    background-color: #dbdbdb;
+}
+
+tbody tr:nth-child(odd) {
+    background-color: #ffffff;
+}

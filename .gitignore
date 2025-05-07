@@ -25,3 +25,6 @@ venv.bak/
 .env
 # config.ini
 # secrets.json
+
+books.csv
+data/

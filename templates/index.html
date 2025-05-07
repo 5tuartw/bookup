@@ -2,106 +2,16 @@
 <html>
 <head>
     <title>Book Recommendation Finder</title>
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Slab:wght@100..900&display=swap" rel="stylesheet">
+    
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
 
-    <script>
-        function getJobStatus(jobId) {
-            fetch('/results/' + jobId)
-                .then(response => response.json())
-                .then(data => {
-                    const resultDiv = document.getElementById('result');
-                    console.log("Received data:", data);
-                    if (data && data.status === 'finished') {
-                        let bookResults = data.result["results_per_title"];
-                        resultDiv.innerHTML = '';
-
-                        bookResults.forEach(result =>{
-                            const userTitleHeading = document.createElement('h3');
-                            userTitleHeading.textContent = `You entered: "${result.user_title}"`;
-                            resultDiv.appendChild(userTitleHeading);
-
-                            if (result.possible_matches.length > 0) {
-                                const matchesList = document.createElement('ul');
-                                result.possible_matches.forEach((matchInfo, index) => {
-                                    const listItem = document.createElement('li');
-                                    const radioBtn = document.createElement('input');
-                                    radioBtn.setAttribute('type', 'radio');
-                                    radioBtn.setAttribute('name', `select_${result.user_title.replace(/\s+/g, '_')}`);
-                                    radioBtn.setAttribute('value', JSON.stringify(matchInfo.match));
-
-                                    if (index === 0) {
-                                        radioBtn.setAttribute('checked', 'checked');
-                                    }
-
-                                    const label = document.createElement('label');
-                                    label.textContent = `${matchInfo.match.title} by ${matchInfo.match.authors.join(', ')} (similarity: ${matchInfo.similarity.toFixed(2)})`;
-                                    label.prepend(radioBtn);
-
-                                    listItem.appendChild(label);
-                                    matchesList.appendChild(listItem);
-                                });
-                                resultDiv.appendChild(matchesList);
-                            } else {
-                                const noMatchPara = document.createElement('p');
-                                noMatchPara.textContent = 'No matches found.';
-                                resultDiv.appendChild(noMatchPara);
-                            }
-                        });
-                    } else if (data && data.status === 'failed') {
-                        resultDiv.innerText = 'Book search failed: ' + data.error;
-                    } else if (data) {
-                        resultDiv.innerText = 'Book search pending...';
-                        setTimeout(function() {
-                            getJobStatus(jobId);
-                        }, 1000);
-                    } else {
-                        resultDiv.innerText = 'Error fetching results.'
-                    }
-                })
-                .catch(error => {
-                    document.getElementById('result').innerText = 'Error communicating with the server.'
-                });
-        }
-
-        function submitConfirmedBooks() {
-            const confirmedBooks = [];
-            const radioGroups = document.querySelectorAll('input[type="radio"]');
-
-            const selections = {};
-            radioGroups.forEach(radio => {
-                const groupName = radio.getAttribute('name');
-                if (radio.checked) {
-                    selections[groupName] = JSON.parse(radio.value);
-                }
-            });
-
-            const confirmedBooksDiv = document.getElementById('confirmed_books');
-            confirmedBooksDiv.innerHTML = '<h3>Confirmed Books:</h3><ul></ul>';
-            const confirmedList = confirmedBooksDiv.querySelector('ul');
-
-            for (const groupName in selections) {
-                const book = selections[groupName];
-                const listItem = document.createElement('li');
-                listItem.textContent = `${book.title} by ${book.authors.join(', ')}`;
-                confirmedList.appendChild(listItem)
-                confirmedBooks.push(book);
-            }
-
-            console.log("Confirmed Books:", confirmedBooks);
-        }
-
-        document.addEventListener('DOMContentLoaded', function() {
-            const jobIdElement = document.getElementById('job_id');
-            if (jobIdElement && jobIdElement.value){
-                const jobId = jobIdElement.value;
-                const resultDiv = document.getElementById('result');
-                resultDiv.innerText = 'Book search pending...';
-                getJobStatus(jobId);
-            }
-        });
-    </script>
 </head>
 <body>
+
     <h1>Submit a List of Books</h1>
     <form method="POST">
         <label for="book_list">Enter Book List:</label><br>
@@ -109,10 +19,14 @@
         <input type="submit" value="Look up book titles">
         {% if job_id %}
             <input type="hidden" id="job_id" value="{{ job_id }}">
+            <div id="status" style="margin-top: 15px; margin-bottom: 10px; font-weight: bold;"></div>
             <div id="result"></div>
-            <button type="button" onclick="submitConfirmedBooks()">Confirm Books</button>
         {% endif %}
     </form>
     <div id="confirmed_books"></div>
+
+    <div id="common_keywords" style="display: none;"></div>
+
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>
 </html>
