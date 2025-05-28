@@ -9,7 +9,7 @@ from redis import Redis, RedisError
 import os
 
 DB_FILE_PATH = 'data/books.db'
-SLEEP_INTERVAL = 0.0 # Adjust as needed for Ollama setup
+SLEEP_INTERVAL = 1.0 # Adjust as needed for Ollama setup
 
 def enrich_database_llm_only():
     """Fetches only LLM analysis for books in the database."""

@@ -2,7 +2,6 @@ from flask import Flask, request, render_template, jsonify
 from rq import Queue
 from redis import Redis
 from tasks import find_books_via_google_search, extract_keywords_from_text, background_book_analysis_task
-from book_data import book_list
 import requests
 import json
 

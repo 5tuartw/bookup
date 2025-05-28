@@ -241,9 +241,15 @@ function checkLLMJobStatus(jobId) {
 
             if (data.status === 'finished') {
                 statusDiv.innerHTML = 'Analysis complete!';
-                console.log("LLM Analysis results received:", data.result);
+                console.log("LLM Analysis and Profile results received:", data.result);
 
-                displayFinalResults(data.result);
+                // data.result now contains { analyzed_books_map: {...}, user_profile_details: {...} }
+                if (data.result && data.result.analyzed_books_map) {
+                    displayFinalResults(data.result.analyzed_books_map); // Shows individual book sentiments
+                }
+                if (data.result && data.result.user_profile_details) {
+                    displayUserProfile(data.result.user_profile_details); // New function for profile
+                }
 
             } else if (data.status === 'failed') {
                 statusDiv.innerHTML = `LLM analysis job failed: ${data.error}`;
@@ -324,6 +330,39 @@ function displayFinalResults(finalBookData) {
 
      const resultDiv = document.getElementById('result');
      if(resultDiv) resultDiv.innerHTML = '';
+}
+
+function displayUserProfile(profile) {
+    const profileDiv = document.getElementById('user_profile_display'); // Create this div in index.html
+    if (!profileDiv) {
+        console.error("Element with ID 'user_profile_display' not found.");
+        return;
+    }
+    profileDiv.innerHTML = '<h3>Your Deduced Preferences:</h3>';
+    const ul = document.createElement('ul');
+
+    if (profile.top_genres && profile.top_genres.length > 0) {
+        ul.innerHTML += `<li><strong>Top Genres:</strong> ${profile.top_genres.join(', ')}</li>`;
+    }
+    if (profile.top_tones && profile.top_tones.length > 0) {
+        ul.innerHTML += `<li><strong>Top Tones:</strong> ${profile.top_tones.join(', ')}</li>`;
+    }
+    if (profile.top_themes && profile.top_themes.length > 0) {
+        ul.innerHTML += `<li><strong>Key Themes:</strong> ${profile.top_themes.join(', ')}</li>`;
+    }
+    // Add more for settings, target audiences etc.
+    if (profile.top_target_audiences && profile.top_target_audiences.length > 0) {
+        ul.innerHTML += `<li><strong>Likely Target Audiences:</strong> ${profile.top_target_audiences.join(', ')}</li>`;
+    }
+     if (profile.top_setting_periods && profile.top_setting_periods.length > 0) {
+        ul.innerHTML += `<li><strong>Preferred Setting Periods:</strong> ${profile.top_setting_periods.join(', ')}</li>`;
+    }
+    if (profile.top_setting_locations && profile.top_setting_locations.length > 0) {
+        ul.innerHTML += `<li><strong>Preferred Setting Locations:</strong> ${profile.top_setting_locations.join(', ')}</li>`;
+    }
+
+    profileDiv.appendChild(ul);
+    profileDiv.style.display = 'block';
 }
 
 /* removed temporarily

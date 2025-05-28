@@ -8,6 +8,7 @@ import requests
 import spacy
 from spacy.lang.en.stop_words import STOP_WORDS
 import sqlite3
+import math
 from collections import Counter
 
 analyser = SentimentIntensityAnalyzer()
@@ -158,12 +159,12 @@ def get_llm_analysis_for_book_local(book_data, redis_conn):
 
         prompt = (
             f"Analyse the book '{title} by {author}. Based on public knowledge and common reader discussions, please provide:\n"
-            f"1. genre: List the primary genre(s) \
-                (e.g., 'science fiction, 'historical fantasy', 'thriller')\n"
+            f"1. genre: List the primary genre(s). These should be broad genres so that similar stories can be easily grouped together, so avoid compound genre titles \
+                (e.g., 'science fiction, 'historical fantasy', 'thriller').\n"
             f"2. setting_period: State the primary time period \
                 (e.g., 'contemporary', 'Victorian era', 'futuristic')\n"
             f"3. setting_location: Describe the primary location or type of setting \
-                (e.g., 'London, England', 'Small town USA', 'space station', 'fictional kingdrom')\n"
+                (e.g., 'London, England', 'Small town USA', 'space station', 'fictional kingdom')\n"
             f"4. tone: List up to three primary tones (e.g. 'humourous', 'suspenseful', 'bleak', 'nostalgic', 'satirical')\n"
             f"5. target_audience: State the primary target audience \
                 (e.g. 'children', 'young adult')\n"
@@ -178,7 +179,7 @@ def get_llm_analysis_for_book_local(book_data, redis_conn):
                 'target_audience': string, \
                 'themes': (a list of strings) and \
                 'sentiment': (a string). \
-                Do not include any text outside of the JSON object."
+                Do not include any text outside of the JSON object. The output will be used to categorise and compare books, so all of the data should be broad enough to allow for this."
         )
 
         payload = {
@@ -231,17 +232,126 @@ def get_llm_analysis_for_book_local(book_data, redis_conn):
     
     return llm_results
 
+# --- Gathers LLM derived data in books.db as well as Google Books API data to make profile of user's preferences ---
+# Weights books based on their Google Books API averageRating and ratingCount data
+# Raw weighted counts stored for later use in calculate_similarity function
+def generate_user_profile(analysed_user_books):
+    """
+    Processes data from the user's analysed books to create a preference profile
+
+    Args:
+        analysed_user_books (dict): A dictionary where keys are ISBNs and values are
+                                    book detail dicts (including LLM analysis fields 
+                                    like 'llm_genre', 'llm_tone', 'llm_setting_period').
+    
+    Returns:
+        dict: a user profile dictionary.
+    """
+    if not analysed_user_books or not isinstance(analysed_user_books, dict):
+        print("Warning: generate_user_profile received invalid or empty input.")
+        return {}
+    
+    feature_aggregation = {
+        'genre': Counter(),
+        'tone': Counter(),
+        'theme': Counter(),
+        'setting_period': Counter(),
+        'setting_location': Counter(),
+        'target_audience': Counter()
+    }
+    all_authors = []
+    read_isbns = list(analysed_user_books.keys())
+    
+    total_google_rating_points = 0
+    total_google_ratings_count_for_avg = 0
+    books_with_google_rating_data = 0
+
+    for isbn, book_details in analysed_user_books.items():
+        if not book_details or not isinstance(book_details, dict):
+            continue
+
+        book_weight = 1.0
+        avg_rating = book_details.get('averageRating')
+        ratings_count = book_details.get('ratingsCount')
+
+        if avg_rating is not None and ratings_count is not None:
+            try:
+                r = float(avg_rating)
+                c = int(ratings_count)
+                if r > 0 and c > 0:
+                    # ensure that rating is between 1 and 5
+                    clamped_rating = max(1, min(r, 5))
+                    # use logarithmic scale to valance ratings counts for books of vastly differing popularity
+                    # examples:
+                    #   log10(10 + 1) ≈ 1.04
+                    #   log10(100 + 1) ≈ 2.00
+                    #   log10(1000 + 1) ≈ 3.00
+                    #   log10(100000 + 1) ≈ 5.00
+                    book_weight = clamped_rating * math.log10(c+1) # +1 for books that might have 0 ratings
+
+                    total_google_rating_points += r * c
+                    total_google_ratings_count_for_avg += c
+                    books_with_google_rating_data += 1
+            except (ValueError, TypeError):
+                book_weight = 1.0
+
+        def aggregate_list_feature(items, feature_name):
+            if items and isinstance(items, list):
+                for item in items:
+                    if item and isinstance(item, str):
+                        feature_aggregation[feature_name][item.lower()] += book_weight
+        
+        def aggregate_string_feature(item_value, feature_name):
+            if item_value and isinstance(item_value, str):
+                feature_aggregation[feature_name][item_value.lower()] += book_weight
+        
+        aggregate_list_feature(book_details.get('llm_genre'), 'genre')
+        aggregate_list_feature(book_details.get('llm_tone'), 'tone')
+        aggregate_list_feature(book_details.get('llm_themes'), 'theme')
+
+        aggregate_string_feature(book_details.get('llm_setting_period'),'setting_period')
+        aggregate_string_feature(book_details.get('llm_setting_location'),'setting_location')
+        aggregate_string_feature(book_details.get('llm_target_audience'),'target_audience')
+
+        authors_list = book_details.get('authors', [])
+        if isinstance(authors_list, list):
+            all_authors.extend(a.lower() for a in authors_list if a and isinstance(a, str))
+
+    user_profile = {
+        'top_genres': [item[0] for item in  feature_aggregation['genre'].most_common(3)],
+        'top_tones': [item[0] for item in  feature_aggregation['tone'].most_common(3)],
+        'top_themes': [item[0] for item in  feature_aggregation['theme'].most_common(10)],
+        'top_periods': [item[0] for item in  feature_aggregation['setting_period'].most_common(2)],
+        'top_locations': [item[0] for item in  feature_aggregation['setting_location'].most_common(2)],
+        'top_audiences': [item[0] for item in  feature_aggregation['target_audience'].most_common(2)],
+        'read_authors': list(set(all_authors)),
+        'read_isbns': read_isbns,
+
+        'avg_input_google_rating': (total_google_rating_points / total_google_ratings_count_for_avg) if total_google_ratings_count_for_avg > 0 else None,
+        'total_input_google_ratings_count': total_google_ratings_count_for_avg,
+
+        'weighted_genres': dict(feature_aggregation['genre']),
+        'weighted_tones': dict(feature_aggregation['tone']),
+        'weighted_themes': dict(feature_aggregation['theme']),
+        'weighted_setting_periods': dict(feature_aggregation['setting_period']),
+        'weighted_setting_locations': dict(feature_aggregation['setting_location']),
+        'weighted_target_audiences': dict(feature_aggregation['target_audience'])
+    }
+
+    print(f"Generated User Profile: {json.dumps(user_profile, indent=2)}")
+    return user_profile
+
 def background_book_analysis_task(book_list_data):
     redis_connection = Redis(decode_responses=True)
     db_path = 'data/books.db'
 
-    results = {}
+    analysed_books_dict = {}
 
     sqlite_conn = None
     try:
         sqlite_conn = sqlite3.connect(db_path)
         sqlite_cursor = sqlite_conn.cursor()
-        print(f"Connect to SQLite DB: {db_path} for updates.")
+        print(f"Connected to SQLite DB: {db_path} for updates.")
     except sqlite3.Error as e:
         print(f"ERROR: Could not connect to SQLite DB {db_path} in background_book_analysis_task: {e}")
 
@@ -252,19 +362,28 @@ def background_book_analysis_task(book_list_data):
 
         llm_analysis = get_llm_analysis_for_book_local(book, redis_connection)
 
+        current_book_result = book.copy()
+
         if llm_analysis:
-            book['llm_genre'] = llm_analysis.get('genre')
-            book['llm_setting_period'] = llm_analysis.get('setting_period')
-            book['llm_setting_location'] = llm_analysis.get('setting_location')
-            book['llm_tone'] = llm_analysis.get('tone')
-            book['llm_target_audience'] = llm_analysis.get('target_audience')
-            book['llm_themes'] = llm_analysis.get('themes')
-            book['llm_sentiment'] = llm_analysis.get('sentiment')
-        
-        if sqlite_conn:
-            try:
-                print(f"Updating books.db for ISB {isbn} with new LLM data.")
-                sqlite_cursor.execute("""
+            current_book_result['llm_genre'] = llm_analysis.get('genre')
+            current_book_result['llm_setting_period'] = llm_analysis.get('setting_period')
+            current_book_result['llm_setting_location'] = llm_analysis.get('setting_location')
+            current_book_result['llm_tone'] = llm_analysis.get('tone')
+            current_book_result['llm_target_audience'] = llm_analysis.get('target_audience')
+            current_book_result['llm_themes'] = llm_analysis.get('themes')
+            current_book_result['llm_sentiment'] = llm_analysis.get('sentiment')
+
+            if sqlite_conn:
+                try:
+                    sqlite_cursor.execute("SELECT llm_themes FROM books WHERE isbn13 = ?", (isbn,))
+                    existing_llm_data = sqlite_cursor.fetchone()
+
+                    needs_update= True
+                    if existing_llm_data and existing_llm_data[0] is not None:
+                        pass
+                    if needs_update:
+                        print(f"Attempting to update books.db for ISBN: {isbn} with new LLM data.")
+                        sqlite_cursor.execute("""
                                       UPDATE books
                                       SET llm_genre = ?,
                                           llm_themes = ?,
@@ -288,116 +407,236 @@ def background_book_analysis_task(book_list_data):
                                           json.dumps(book.get('categories', [])),
                                           isbn
                                       ))
-                sqlite_conn.commit()
-                print(f"Succesfully updated books.db for ISBN: {isbn}")
-            except sqlite3.Error as e:
-                print(f"ERROR: Failed to update books.db for ISBN: {isbn}: {e}")
-                sqlite_conn.rollback()
+                        if sqlite_cursor.rowcount == 0:
+                            print(f"Warning: ISBN {isbn} not found in books.db for UPDATE.")
+                        else:
+                            sqlite_conn.commit()
+                            print(f"Successfully updated books.db for ISBN: {isbn}")
+                except sqlite3.Error as e:
+                    print(f"ERROR: Failed to update books.db for ISBN: {isbn}: {e}")
+                    if sqlite_conn: sqlite_conn.rollback()
 
         else:
-            book['llm_genre'] = None
-            book['llm_setting_period'] = None
-            book['llm_setting_location'] = None
-            book['llm_tone'] = None
-            book['llm_target_audience'] = None
-            book['llm_themes'] = None
-            book['llm_sentiment'] = None
+            current_book_result['llm_genre'] = None
+            current_book_result['llm_setting_period'] = None
+            current_book_result['llm_setting_location'] = None
+            current_book_result['llm_tone'] = None
+            current_book_result['llm_target_audience'] = None
+            current_book_result['llm_themes'] = None
+            current_book_result['llm_sentiment'] = None
         
-        results[isbn] = book
-    
+        analysed_books_dict[isbn] = current_book_result
+            
     if sqlite_conn:
         sqlite_conn.close()
         print("Closed SQLite DB connection.")
 
-    print("Finish background analysis.")
-    return results
+    print("Generating user profile based on analysed books...")
+    user_profile = generate_user_profile(analysed_books_dict)
 
-def generate_user_profile(analysed_user_books):
+    print("Finish background analysis and profile generation.")
+    return {"analysed_books_map": analysed_books_dict, "user_profile_details": user_profile}
+
+
+def calculate_similarity(user_profile, candidate_book_db_row):
     """
-    Processes data from the user's analysed books to create a preference profile
-
-    Args:
-        analysed_user_books (dict): A dictionary where keys are ISBNs and values are
-                                    book detail dicts (including LLM analysis fields 
-                                    like 'llm_genre', 'llm_tone', 'llm_setting_period').
-    
-    Returns:
-        dict: a user profile dictionary.
+    Calculates a similarity score between the user profile and a candidate book from the database.
+    candidate_book_db_row is a dict-like object (e.g., sqlite3.Row) from books.db.
+    LLM fields like llm_genre, llm_themes, llm_tone are expected to be JSON strings from DB.
     """
-    if not analysed_user_books:
-        return {}
-    
-    # from the LLM analysis task
-    all_genres = []
-    all_tones = []
-    all_themes = []
-    all_setting_periods = []
-    all_setting_locations = []
-    all_target_audiences = []
-    all_authors = []
-    read_isbns = list(analysed_user_books.keys())
+    score = 0
+    if not user_profile or not candidate_book_db_row:
+        return 0
 
-    # from the Google Books API
-    total_google_rating_score = 0
-    total_google_ratings_count_score = 0
-    books_with_ratings = 0
-
-    for isbn, book_details in analysed_user_books.item():
-        if not book_details:
-            continue
-
-        # llm derived lists
-        genres = book_details.get('llm_genre', [])
-        tones = book_details.get('llm_tone', [])
-        themes = book_details.get('llm_themes', [])
-        all_genres.extend(g.lower() for g in genres if g)
-        all_tones.extend(t.lower() for t in tones if t)
-        all_themes.extend(th.lower() for th in themes if th)
-
-        # llm derived strings
-        period = book_details.get('llm_setting_period')
-        if period: all_setting_periods.append(period.lower())
-        location = book_details.get('llm_setting_location')
-        if location: all_setting_locations.append(location.lower())
-        audience = book_details.get('llm_target_audience')
-        if audience: all_target_audiences.append(audience.lower())
-
-        authors_list = book_details.get('authors', [])
-        all_authors.extend(a.lower() for a in authors_list if a)
-
-        avg_rating = book_details.get('averageRating')
-        ratings_count = book_details.get('ratingsCount')
-        if avg_rating is not None and ratings_count is not None:
+    # Helper to safely parse JSON strings (which might be list or single string) from DB fields into lowercase sets
+    def safe_json_loads_to_lowercase_set(json_str):
+        if json_str and isinstance(json_str, str):
             try:
-                total_google_rating_score += float(avg_rating)
-                total_google_ratings_count_score += int(ratings_count)
-                books_with_ratings += 1
-            except (ValueError, TypeError):
-                pass
-        
-    genre_counts = Counter(all_genres)
-    tone_counts = Counter(all_tones)
-    theme_counts = Counter(all_themes)
-    period_counts = Counter(all_setting_periods)
-    location_counts = Counter(all_setting_locations)
-    audience_counts = Counter(all_target_audiences)
-    author_counts = Counter(all_authors)
+                loaded = json.loads(json_str)
+                if isinstance(loaded, list):
+                    return set(item.lower() for item in loaded if isinstance(item, str) and item.strip())
+                elif isinstance(loaded, str) and loaded.strip(): # Handle if LLM returned a single string instead of list
+                    return {loaded.lower()}
+            except json.JSONDecodeError:
+                return set()
+        return set()
 
-    user_profile = {
-        'top_genres': [item[0] for item in  genre_counts.most_common(3)],
-        'top_tones': [item[0] for item in  tone_counts.most_common(3)],
-        'top_themes': [item[0] for item in  theme_counts.most_common(3)],
-        'top_periods': [item[0] for item in  period_counts.most_common(3)],
-        'top_locations': [item[0] for item in  location_counts.most_common(3)],
-        'top_audiences': [item[0] for item in  audience_counts.most_common(3)],
-        'read_authors': list(author_counts.keys()),
-        'avg_google_rating_preference': (total_google_rating_score / books_with_ratings) if books_with_ratings > 0 else None,
-        'avg_google_popularity_preference': (total_google_ratings_count_score / books_with_ratings) if books_with_ratings > 0 else None,
-        'genre_counts': dict(genre_counts),
-        'tone_counts': dict(tone_counts),
-        'theme_counts': dict(theme_counts),
-        'audience_counts': dict(audience_counts)
+    # Candidate's features (parsed from JSON strings stored in DB)
+    candidate_genres = safe_json_loads_to_lowercase_set(candidate_book_db_row.get('llm_genre'))
+    candidate_tones = safe_json_loads_to_lowercase_set(candidate_book_db_row.get('llm_tone'))
+    candidate_themes = safe_json_loads_to_lowercase_set(candidate_book_db_row.get('llm_themes'))
+    candidate_setting_period = (candidate_book_db_row.get('llm_setting_period') or "").lower()
+    candidate_setting_location = (candidate_book_db_row.get('llm_setting_location') or "").lower()
+    candidate_target_audience = (candidate_book_db_row.get('llm_target_audience') or "").lower()
+    # Authors for the candidate book (already a JSON string list in DB from populate_db.py)
+    try:
+        candidate_authors = set(a.lower() for a in json.loads(candidate_book_db_row.get('authors') or "[]"))
+    except json.JSONDecodeError:
+        candidate_authors = set()
+
+
+    # --- Scoring Logic (Weights can be tuned) ---
+    WEIGHTS = {
+        'genre': 7,
+        'tone': 5,
+        'theme': 2,             # Per shared theme
+        'setting_period': 3,
+        'setting_location': 3,
+        'target_audience': 4,
+        'author_match_boost': 5 # If user likes authors, a small boost if candidate matches
     }
 
-    print(f"Generated User Profile: {user_profile}")
-    return user_profile
+    # User profile features (already lowercase lists/sets)
+    user_top_genres_set = set(user_profile.get('top_genres', []))
+    user_top_tones_set = set(user_profile.get('top_tones', []))
+    user_top_themes_set = set(user_profile.get('top_themes', []))
+    user_top_setting_periods_set = set(user_profile.get('top_setting_periods', []))
+    user_top_setting_locations_set = set(user_profile.get('top_setting_locations', []))
+    user_top_target_audiences_set = set(user_profile.get('top_target_audiences', []))
+    user_read_authors_set = set(user_profile.get('read_authors', []))
+
+
+    # Genre matching
+    score += len(user_top_genres_set.intersection(candidate_genres)) * WEIGHTS['genre']
+
+    # Tone matching
+    score += len(user_top_tones_set.intersection(candidate_tones)) * WEIGHTS['tone']
+    
+    # Theme matching
+    score += len(user_top_themes_set.intersection(candidate_themes)) * WEIGHTS['theme']
+
+    # Setting Period matching
+    if candidate_setting_period and candidate_setting_period in user_top_setting_periods_set:
+        score += WEIGHTS['setting_period']
+            
+    # Setting Location matching
+    if candidate_setting_location and candidate_setting_location in user_top_setting_locations_set:
+        score += WEIGHTS['setting_location']
+
+    # Target Audience matching
+    if candidate_target_audience and candidate_target_audience in user_top_target_audiences_set:
+        score += WEIGHTS['target_audience']
+    
+    # Author Boost (if candidate author is among user's read authors - could be good or bad depending on goal)
+    # For now, let's give a boost if the user has read works by this author before.
+    if not user_read_authors_set.isdisjoint(candidate_authors): # Checks for any overlap
+        score += WEIGHTS['author_match_boost']
+
+    # --- Popularity/Rating Fallback for CANDIDATE books ---
+    # This part can only work if your books.db has 'average_rating' and 'ratings_count'
+    # populated for the candidate books (from your original Kaggle CSV or if enrich_db.py adds them).
+    # Since your new CSV doesn't have these, these fields will be NULL.
+    # We'll make this part conditional.
+    candidate_avg_rating = candidate_book_db_row.get('average_rating')
+    candidate_ratings_count = candidate_book_db_row.get('ratings_count')
+
+    # if candidate_avg_rating is not None and candidate_ratings_count is not None:
+    #     try:
+    #         if float(candidate_avg_rating) > 4.0:
+    #             score += 1 # Small boost for highly-rated candidates
+    #         if int(candidate_ratings_count) > 50000: # Example: popular if > 50k ratings
+    #             score += 1 # Small boost for popular candidates
+    #         # Fallback boost if content score is still low
+    #         if score < 5 and float(candidate_avg_rating) > 4.2 and int(candidate_ratings_count) > 100000:
+    #             score += 3
+    #     except (ValueError, TypeError):
+    #         pass # Ignore if conversion fails
+
+    return score
+
+
+def generate_recommendations(analyzed_user_books, db_path='data/books.db', top_n=10):
+    """
+    Generates book recommendations based on the user's analyzed books.
+    """
+    user_profile = generate_user_profile(analyzed_user_books) # This is already up-to-date
+    if not user_profile or not user_profile.get('read_isbns'):
+        print("User profile is empty or invalid, cannot generate recommendations.")
+        return []
+
+    # print("User Profile for Recommendations:", json.dumps(user_profile, indent=2)) # Already printed in generate_user_profile
+
+    scored_candidates = []
+    conn = None
+    try:
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row # Access columns by name, like a dictionary
+        cursor = conn.cursor()
+
+        # Prepare placeholders for excluding read ISBNs
+        placeholders = ','.join('?' for _ in user_profile['read_isbns'])
+        
+        # Query to fetch candidate books that have been enriched by the LLM
+        sql_query = f"""
+            SELECT isbn13, title, authors, 
+                   llm_genre, llm_themes, llm_tone, 
+                   llm_setting_period, llm_setting_location, llm_target_audience
+                   -- Include average_rating, ratings_count if they exist and are populated in your books.db
+                   -- For now, assuming they are mostly NULL for candidates from the new CSV
+                   --, average_rating, ratings_count 
+            FROM books
+            WHERE (llm_themes IS NOT NULL AND llm_themes != '[]') 
+              AND (llm_genre IS NOT NULL AND llm_genre != '[]')
+              AND isbn13 NOT IN ({placeholders})
+        """
+        
+        query_params = user_profile['read_isbns']
+
+        # OPTIONAL: Pre-filter candidates by user's top genre(s) using SQL for efficiency
+        # This can significantly reduce the number of books to score in Python.
+        # Example: if user_profile['top_genres'] has ['sci-fi', 'fantasy']
+        if user_profile.get('top_genres'):
+            genre_conditions = []
+            # Create a temporary list for query_params because we might add to it
+            current_query_params = list(query_params) # Start with read_isbns
+            for genre_to_match in user_profile['top_genres']:
+                genre_conditions.append(f"llm_genre LIKE ?")
+                current_query_params.append(f'%"{genre_to_match}"%') # Assumes llm_genre is stored as JSON list string '["genre1", "genre2"]'
+            
+            if genre_conditions:
+                sql_query += " AND (" + " OR ".join(genre_conditions) + ")"
+                query_params = tuple(current_query_params) # Convert back to tuple for execute
+        
+        # Add a LIMIT to the SQL query to avoid processing too many candidates if the genre filter is too broad
+        sql_query += " LIMIT 1000" # Process max 1000 potential candidates
+
+        cursor.execute(sql_query, query_params)
+        candidate_rows = cursor.fetchall() # These are sqlite3.Row objects
+
+        print(f"Fetched {len(candidate_rows)} candidate books from DB for scoring after genre filter (if any).")
+
+        for candidate_row in candidate_rows: # candidate_row is already dict-like due to conn.row_factory
+            score = calculate_similarity(user_profile, candidate_row)
+            
+            if score > 0: # Only consider books with some similarity
+                try:
+                    authors_list = json.loads(candidate_row['authors'] or "[]")
+                except json.JSONDecodeError:
+                    authors_list = []
+                
+                recommended_book = {
+                    'isbn': candidate_row['isbn13'],
+                    'title': candidate_row['title'],
+                    'authors': authors_list,
+                    'score': score,
+                    # Optionally add matched features for display/debugging on frontend
+                    # 'matched_genres': [g for g in json.loads(candidate_row.get('llm_genre') or '[]') if g.lower() in user_profile.get('top_genres', [])],
+                }
+                scored_candidates.append(recommended_book)
+        
+        scored_candidates.sort(key=lambda x: x['score'], reverse=True)
+
+        print(f"Returning top {min(top_n, len(scored_candidates))} recommendations out of {len(scored_candidates)} scored candidates.")
+        return scored_candidates[:top_n]
+
+    except sqlite3.Error as e:
+        print(f"Database error during recommendation generation: {e}")
+        return []
+    except Exception as e:
+        import traceback
+        print(f"Unexpected error during recommendation generation: {e}")
+        traceback.print_exc()
+        return []
+    finally:
+        if conn:
+            conn.close()
