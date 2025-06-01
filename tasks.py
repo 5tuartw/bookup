@@ -517,30 +517,9 @@ def calculate_similarity(user_profile, candidate_book_db_row):
     if candidate_target_audience and candidate_target_audience in user_top_target_audiences_set:
         score += WEIGHTS['target_audience']
     
-    # Author Boost (if candidate author is among user's read authors - could be good or bad depending on goal)
-    # For now, let's give a boost if the user has read works by this author before.
-    if not user_read_authors_set.isdisjoint(candidate_authors): # Checks for any overlap
+    # Author Boost (if candidate author is among user's read authors)
+    if not user_read_authors_set.isdisjoint(candidate_authors):
         score += WEIGHTS['author_match_boost']
-
-    # --- Popularity/Rating Fallback for CANDIDATE books ---
-    # This part can only work if your books.db has 'average_rating' and 'ratings_count'
-    # populated for the candidate books (from your original Kaggle CSV or if enrich_db.py adds them).
-    # Since your new CSV doesn't have these, these fields will be NULL.
-    # We'll make this part conditional.
-    candidate_avg_rating = candidate_book_db_row.get('average_rating')
-    candidate_ratings_count = candidate_book_db_row.get('ratings_count')
-
-    # if candidate_avg_rating is not None and candidate_ratings_count is not None:
-    #     try:
-    #         if float(candidate_avg_rating) > 4.0:
-    #             score += 1 # Small boost for highly-rated candidates
-    #         if int(candidate_ratings_count) > 50000: # Example: popular if > 50k ratings
-    #             score += 1 # Small boost for popular candidates
-    #         # Fallback boost if content score is still low
-    #         if score < 5 and float(candidate_avg_rating) > 4.2 and int(candidate_ratings_count) > 100000:
-    #             score += 3
-    #     except (ValueError, TypeError):
-    #         pass # Ignore if conversion fails
 
     return score
 
@@ -583,29 +562,28 @@ def generate_recommendations(analyzed_user_books, db_path='data/books.db', top_n
         query_params = user_profile['read_isbns']
 
         # OPTIONAL: Pre-filter candidates by user's top genre(s) using SQL for efficiency
-        # This can significantly reduce the number of books to score in Python.
-        # Example: if user_profile['top_genres'] has ['sci-fi', 'fantasy']
+        # eg if user_profile['top_genres'] has ['sci-fi', 'fantasy']
         if user_profile.get('top_genres'):
             genre_conditions = []
             # Create a temporary list for query_params because we might add to it
             current_query_params = list(query_params) # Start with read_isbns
             for genre_to_match in user_profile['top_genres']:
                 genre_conditions.append(f"llm_genre LIKE ?")
-                current_query_params.append(f'%"{genre_to_match}"%') # Assumes llm_genre is stored as JSON list string '["genre1", "genre2"]'
+                current_query_params.append(f'%"{genre_to_match}"%')
             
             if genre_conditions:
                 sql_query += " AND (" + " OR ".join(genre_conditions) + ")"
-                query_params = tuple(current_query_params) # Convert back to tuple for execute
+                query_params = tuple(current_query_params)
         
-        # Add a LIMIT to the SQL query to avoid processing too many candidates if the genre filter is too broad
-        sql_query += " LIMIT 1000" # Process max 1000 potential candidates
+        # Add a LIMIT to the SQL query
+        sql_query += " LIMIT 1000"
 
         cursor.execute(sql_query, query_params)
-        candidate_rows = cursor.fetchall() # These are sqlite3.Row objects
+        candidate_rows = cursor.fetchall()
 
         print(f"Fetched {len(candidate_rows)} candidate books from DB for scoring after genre filter (if any).")
 
-        for candidate_row in candidate_rows: # candidate_row is already dict-like due to conn.row_factory
+        for candidate_row in candidate_rows:
             score = calculate_similarity(user_profile, candidate_row)
             
             if score > 0: # Only consider books with some similarity
@@ -619,8 +597,6 @@ def generate_recommendations(analyzed_user_books, db_path='data/books.db', top_n
                     'title': candidate_row['title'],
                     'authors': authors_list,
                     'score': score,
-                    # Optionally add matched features for display/debugging on frontend
-                    # 'matched_genres': [g for g in json.loads(candidate_row.get('llm_genre') or '[]') if g.lower() in user_profile.get('top_genres', [])],
                 }
                 scored_candidates.append(recommended_book)
         
