@@ -26,10 +26,10 @@ All heavy processing (API calls, LLM analysis) is handled by background tasks us
     * Setting (Period & Location)
     * Target Audience
     * Overall Sentiment
-* **Background Task Processing:** Utilizes Python RQ and Redis for asynchronous processing of Google Books API calls and LLM analysis.
+* **Background Task Processing:** Utilises Python RQ and Redis for asynchronous processing of Google Books API calls and LLM analysis.
 * **Caching:** LLM analysis results are cached in Redis to speed up subsequent requests for the same book.
 * **User Preference Profile Generation:** Creates a profile based on aggregated and weighted features from the user's analysed books.
-* **Profile Display:** Shows the user their analyzed books, common themes derived from their list, and a summary of their deduced preferences.
+* **Profile Display:** Shows the user their analysed books, common themes derived from their list, and a summary of their deduced preferences.
 * **Offline Data Management Scripts:**
     * `populate_db.py`: Loads an initial list of books from a user-provided CSV (with columns like ISBN, Book-Title, Book-Author, etc.) into an SQLite database (`books.db`). Includes title cleaning and ISBN-10 to ISBN-13 conversion using `isbnlib`.
     * `enrich_db.py`: Processes books in `books.db`, performing LLM analysis for each and storing the results back into the database. Designed to be resumable and uses Redis caching.
@@ -119,7 +119,7 @@ All heavy processing (API calls, LLM analysis) is handled by background tasks us
 6.  **Data Enrichment (Long Process):**
     * Ensure your Ollama service is running (e.g., run `ollama list` in a new terminal to confirm).
     * Ensure your Redis server is running (check with `redis-cli ping`).
-    * Run the enrichment script. This will process all books in `books.db` that haven't been analyzed yet. It will take a very long time for a large dataset and is resumable.
+    * Run the enrichment script. This will process all books in `books.db` that haven't been analysed yet. It will take a very long time for a large dataset and is resumable.
         ```bash
         python enrich_db.py
         ```
@@ -155,7 +155,7 @@ All heavy processing (API calls, LLM analysis) is handled by background tasks us
 7.  Once "Analysis complete!" appears, you will see:
     * A list of your "Analysed Books" with their LLM-derived sentiment.
     * A "Common Themes (from LLM Analysis)" section if any themes were identical across multiple books.
-    * A "Your Deduced Preferences" section summarizing your profile (top genres, tones, themes, etc.).
+    * A "Your Deduced Preferences" section summarising your profile (top genres, tones, themes, etc.).
 8.  *(The next step to implement is displaying actual book recommendations based on this profile).*
 
 ## 🏗️ Project Structure Overview
@@ -184,12 +184,12 @@ All heavy processing (API calls, LLM analysis) is handled by background tasks us
 * **`enrich_db.py`**: An offline script that iterates through the books in `books.db`, calls the local LLM (via `get_llm_analysis_for_book_local` from `tasks.py`) to get detailed analysis (genre, themes, tone, etc.), and updates the database with this information. It uses Redis for caching LLM responses.
 * **`static/app.js`**: Contains all the client-side JavaScript logic. It handles form submissions, polling for job statuses, dynamically updating the HTML to display results, user preferences, and (soon) recommendations.
 * **`templates/index.html`**: The main HTML structure for the web application.
-* **`data/books.db`**: The SQLite database storing the enriched catalog of books used for generating recommendations.
+* **`data/books.db`**: The SQLite database storing the enriched catalogue of books used for generating recommendations.
 
 ## 🧙 Future Enhancements (Ideas)
 
 * Implement and display the actual book recommendations based on the generated user profile and the enriched `books.db`.
-* More sophisticated user profile visualization (e.g., interactive word clouds for themes, genres, tones using a library like D3.js or WordCloud2.js).
+* More sophisticated user profile visualisation (e.g., interactive word clouds for themes, genres, tones using a library like D3.js or WordCloud2.js).
 * User accounts to save book lists, preference profiles, and rated recommendations.
 * Ability for users to rate recommended books to refine future suggestions (collaborative filtering aspects).
 * Option to enrich `books.db` with more metadata for candidate books, such as cover images, full descriptions, or ratings from APIs (if a reliable source for the large dataset is found or if specific books are looked up on demand).
