@@ -159,7 +159,7 @@ All heavy processing (API calls, LLM analysis) is handled by background tasks us
 8.  *(The next step to implement is displaying actual book recommendations based on this profile).*
 
 ## 🏗️ Project Structure Overview
-bookup/
+```bookup/
 ├── app.py              # Main Flask web application, routes
 ├── tasks.py            # RQ worker tasks (Google Search, spaCy, LLM analysis, profile, recommendations)
 ├── populate_db.py      # Script to populate SQLite DB from input CSV
@@ -174,6 +174,7 @@ bookup/
 │   └── index.html      # Main HTML page template
 ├── venv/               # Python virtual environment (standard practice)
 └── README.md           # This file (you are reading it!)
+```
 
 ## 📂 Key Files Summary
 
